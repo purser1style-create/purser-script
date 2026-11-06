@@ -1,0 +1,1406 @@
+-- ============================================================
+--  PURSER HUB  v1.0
+--  Platform : Luau / Syn / Fluxus / KRNL / Electron
+--  Game     : [New Secret] Sniper Arena
+--  New v8.0 :
+--    • Language system — EN / TH toggle
+--    • RESET closes ALL toggles + FOV circle simultaneously
+--    • ESP box = full outline rect (no cross shape)
+--    • ESP color synced to active theme accent (ally)
+--    • Enemy ESP = complementary color of accent
+-- ============================================================
+
+if _G.__PurserInjected then return end
+_G.__PurserInjected = true
+
+pcall(function()
+    if getscriptcontent and not _G.__PurserSource then
+        _G.__PurserSource = getscriptcontent(script)
+    end
+end)
+
+-- ============================================================
+--  §1  AUTO-REINJECT
+-- ============================================================
+local function __reinject()
+    _G.__PurserInjected = nil
+    local src = _G.__PurserSource
+    if not src then return end
+    if not game:IsLoaded() then game.Loaded:Wait() end
+    task.wait(2.5)
+    local fn = loadstring(src)
+    if fn then pcall(fn) end
+end
+pcall(function()
+    game:GetService("TeleportService").LocalPlayerArrivingFromTeleport:Connect(__reinject)
+end)
+local _lastPlace = game.PlaceId
+task.spawn(function()
+    while true do
+        task.wait(0.5)
+        if game.PlaceId ~= _lastPlace then _lastPlace = game.PlaceId; __reinject() end
+    end
+end)
+
+-- ============================================================
+--  §2  SERVICES
+-- ============================================================
+local Players          = game:GetService("Players")
+local RunService       = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local VirtualInput     = game:GetService("VirtualInputManager")
+local Camera           = workspace.CurrentCamera
+local LocalPlayer      = Players.LocalPlayer
+
+-- ============================================================
+--  §3  LANGUAGE STRINGS
+-- ============================================================
+local LANG = {
+    EN = {
+        title        = "PURSER  HUB",
+        subtitle     = "v8.0  //  SNIPER ARENA",
+        vip          = "VIP",
+        -- sections
+        s_aimbot     = "AIMBOT",
+        s_fire       = "FIRE SETTINGS",
+        s_esp        = "ESP",
+        s_misc       = "MISC",
+        s_theme      = "UI THEME",
+        s_lang       = "LANGUAGE",
+        s_keybind    = "KEYBIND",
+        -- toggles
+        autofire     = "AUTO FIRE",
+        autofire_sub = "auto-click when target in FOV",
+        silentaim    = "SILENT AIM",
+        silentaim_sub= "snap CFrame to target bone",
+        magnet       = "BULLET MAGNET",
+        magnet_sub   = "missed shot pulls to nearest bone",
+        multi        = "MULTI TARGET",
+        multi_sub    = "fire all enemies inside FOV",
+        wallcheck    = "WALL CHECK",
+        wallcheck_sub= "require visible bone",
+        showesp      = "SHOW ESP",
+        showesp_sub  = "outline box around enemies",
+        shownames    = "SHOW NAMES",
+        showdist     = "SHOW DIST",
+        showfov      = "SHOW FOV CIRCLE",
+        -- sliders
+        fov_radius   = "FOV RADIUS",
+        fire_delay   = "FIRE DELAY (s)",
+        mag_radius   = "MAGNET RADIUS",
+        esp_dist     = "ESP MAX DIST",
+        -- fire mode
+        fm_label     = "FIRE MODE",
+        fm_head      = "I  HEAD",
+        fm_body      = "II  BODY RNG",
+        -- theme
+        theme_label  = "UI THEME",
+        -- keybinds
+        kb_panel     = "TOGGLE PANEL",
+        kb_af        = "AUTO FIRE KEY",
+        kb_sa        = "SILENT AIM KEY",
+        kb_reset     = "RESET KEY",
+        kb_sub       = "click to remap",
+        kb_reset_sub = "disables ALL",
+        -- status
+        st_hook      = "HOOK",
+        st_wait      = "WAIT",
+        st_reset_msg = "** RESET — ALL OFF **",
+        -- lang row
+        lang_label   = "LANGUAGE",
+        lang_en      = "EN",
+        lang_th      = "TH",
+    },
+    TH = {
+        title        = "เพอร์เซอร์  ฮับ",
+        subtitle     = "v8.0  //  สไนเปอร์ อารีน่า",
+        vip          = "VIP",
+        s_aimbot     = "เล็งอัตโนมัติ",
+        s_fire       = "ตั้งค่าการยิง",
+        s_esp        = "มองทะลุ",
+        s_misc       = "เบ็ดเตล็ด",
+        s_theme      = "ธีม UI",
+        s_lang       = "ภาษา",
+        s_keybind    = "ปุ่มลัด",
+        autofire     = "ยิงอัตโนมัติ",
+        autofire_sub = "กดยิงเองเมื่อเป้าอยู่ใน FOV",
+        silentaim    = "เล็งเงียบ",
+        silentaim_sub= "สแนปกระสุนไปที่กระดูก",
+        magnet       = "แม่เหล็กกระสุน",
+        magnet_sub   = "ดึงกระสุนพลาดเข้าหาศัตรู",
+        multi        = "หลายเป้าหมาย",
+        multi_sub    = "ยิงทุกคนใน FOV",
+        wallcheck    = "ตรวจสอบกำแพง",
+        wallcheck_sub= "ต้องมองเห็นกระดูกก่อน",
+        showesp      = "แสดง ESP",
+        showesp_sub  = "กล่องรอบศัตรู",
+        shownames    = "แสดงชื่อ",
+        showdist     = "แสดงระยะ",
+        showfov      = "แสดงวง FOV",
+        fov_radius   = "รัศมี FOV",
+        fire_delay   = "หน่วงการยิง (วิ)",
+        mag_radius   = "รัศมีแม่เหล็ก",
+        esp_dist     = "ระยะ ESP สูงสุด",
+        fm_label     = "โหมดยิง",
+        fm_head      = "I  หัว",
+        fm_body      = "II  ตัวสุ่ม",
+        theme_label  = "ธีม UI",
+        kb_panel     = "เปิด/ปิดแผง",
+        kb_af        = "ปุ่มยิงอัตโนมัติ",
+        kb_sa        = "ปุ่มเล็งเงียบ",
+        kb_reset     = "ปุ่มรีเซ็ต",
+        kb_sub       = "คลิกเพื่อเปลี่ยน",
+        kb_reset_sub = "ปิดทุกอย่าง",
+        st_hook      = "ฮุค",
+        st_wait      = "รอ",
+        st_reset_msg = "** รีเซ็ต — ปิดทั้งหมด **",
+        lang_label   = "ภาษา",
+        lang_en      = "EN",
+        lang_th      = "TH",
+    },
+}
+
+local currentLang = "EN"
+local L = LANG[currentLang]
+
+-- live label refs for hot-swap
+local LabelRefs = {}   -- { obj=TextLabel/Frame, key="autofire", prop="Text"|"BackgroundColor3" }
+
+local function registerLabel(obj, key, prop)
+    table.insert(LabelRefs, { obj = obj, key = key, prop = prop or "Text" })
+end
+
+local function applyLanguage(langKey)
+    currentLang = langKey
+    L = LANG[langKey]
+    for _, ref in ipairs(LabelRefs) do
+        if ref.prop == "Text" and L[ref.key] then
+            ref.obj.Text = L[ref.key]
+        end
+    end
+end
+
+-- complementary color helper
+local function complementary(c)
+    return Color3.new(1 - c.R, 1 - c.G, 1 - c.B)
+end
+
+-- ============================================================
+--  §4  THEMES
+-- ============================================================
+local THEMES = {
+    { name="OBSIDIAN", BG=Color3.fromRGB(4,4,5),     PANEL=Color3.fromRGB(8,8,10),
+      ROW=Color3.fromRGB(13,13,17),  SUBTLE=Color3.fromRGB(22,22,28),
+      BORDER=Color3.fromRGB(32,32,40), ACCENT=Color3.fromRGB(200,30,30),
+      DIM=Color3.fromRGB(80,80,90),  WHITE=Color3.fromRGB(220,220,225),
+      GLOW=Color3.fromRGB(180,20,20) },
+    { name="CHROME",   BG=Color3.fromRGB(5,5,6),     PANEL=Color3.fromRGB(9,9,11),
+      ROW=Color3.fromRGB(14,14,18),  SUBTLE=Color3.fromRGB(24,24,30),
+      BORDER=Color3.fromRGB(50,50,60), ACCENT=Color3.fromRGB(180,190,200),
+      DIM=Color3.fromRGB(80,80,90),  WHITE=Color3.fromRGB(230,232,235),
+      GLOW=Color3.fromRGB(150,160,170) },
+    { name="TOXIC",    BG=Color3.fromRGB(3,5,3),     PANEL=Color3.fromRGB(6,9,6),
+      ROW=Color3.fromRGB(10,14,10),  SUBTLE=Color3.fromRGB(18,25,18),
+      BORDER=Color3.fromRGB(30,45,30), ACCENT=Color3.fromRGB(80,220,60),
+      DIM=Color3.fromRGB(70,90,70),  WHITE=Color3.fromRGB(210,230,210),
+      GLOW=Color3.fromRGB(60,200,40) },
+    { name="GHOST",    BG=Color3.fromRGB(4,4,5),     PANEL=Color3.fromRGB(8,8,10),
+      ROW=Color3.fromRGB(14,14,18),  SUBTLE=Color3.fromRGB(24,24,30),
+      BORDER=Color3.fromRGB(50,50,60), ACCENT=Color3.fromRGB(220,225,240),
+      DIM=Color3.fromRGB(80,80,95),  WHITE=Color3.fromRGB(240,240,248),
+      GLOW=Color3.fromRGB(180,185,210) },
+    { name="INFERNO",  BG=Color3.fromRGB(5,3,2),     PANEL=Color3.fromRGB(10,6,4),
+      ROW=Color3.fromRGB(16,10,6),   SUBTLE=Color3.fromRGB(28,18,10),
+      BORDER=Color3.fromRGB(50,28,14), ACCENT=Color3.fromRGB(230,100,20),
+      DIM=Color3.fromRGB(90,65,50),  WHITE=Color3.fromRGB(235,220,210),
+      GLOW=Color3.fromRGB(210,80,15) },
+}
+local currentThemeIdx = 1
+local T = THEMES[currentThemeIdx]
+
+-- ============================================================
+--  §5  SETTINGS
+-- ============================================================
+local Settings = {
+    AimEnabled   = false,
+    WallCheck    = true,
+    FOVRadius    = 350,
+    AutoFire     = false,
+    AutoFireRate = 0.1,
+    ShowESP      = false,
+    ESPMaxDist   = 500,
+    ShowNames    = false,
+    ShowDist     = false,
+    ShowFOV      = false,
+    FireMode     = 1,
+    MultiTarget  = false,
+    BulletMagnet = false,
+    MagnetRadius = 12,
+}
+
+local KeyBindings = {
+    Toggle    = Enum.KeyCode.P,
+    AutoFire  = Enum.KeyCode.F,
+    SilentAim = Enum.KeyCode.G,
+    Reset     = Enum.KeyCode.R,
+}
+
+local DragLocked       = true
+local BindingToggle    = false
+local BindingAutoFire  = false
+local BindingSilentAim = false
+local BindingReset     = false
+
+-- sync fn refs
+local syncAFToggle     = nil
+local syncAimToggle    = nil
+local syncMagnetToggle = nil
+local syncMultiToggle  = nil
+local syncWallToggle   = nil
+local syncESPToggle    = nil
+local syncFOVToggle    = nil
+local StatusLbl        = nil
+
+-- ============================================================
+--  §6  FOV CIRCLE
+-- ============================================================
+local FOVCircle        = Drawing.new("Circle")
+FOVCircle.Visible      = false
+FOVCircle.Thickness    = 1
+FOVCircle.Radius       = Settings.FOVRadius
+FOVCircle.Transparency = 0.35
+FOVCircle.Color        = T.ACCENT
+FOVCircle.Filled       = false
+FOVCircle.NumSides     = 128
+
+-- ============================================================
+--  §7  SCREEN GUI
+-- ============================================================
+pcall(function()
+    local old = game:GetService("CoreGui"):FindFirstChild("PurserHub_v80")
+    if old then old:Destroy() end
+end)
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name           = "PurserHub_v80"
+ScreenGui.ResetOnSpawn   = false
+ScreenGui.IgnoreGuiInset = true
+ScreenGui.DisplayOrder   = 9999
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.Parent         = game:GetService("CoreGui")
+
+local Glow = Instance.new("Frame")
+Glow.Size                   = UDim2.new(0, 302, 0, 638)
+Glow.Position               = UDim2.new(0, 24, 0, 60)
+Glow.BackgroundColor3       = T.GLOW
+Glow.BackgroundTransparency = 0.9
+Glow.BorderSizePixel        = 0
+Glow.ZIndex                 = 1
+Glow.Visible                = false
+Glow.Parent                 = ScreenGui
+Instance.new("UICorner", Glow).CornerRadius = UDim.new(0, 14)
+
+local Panel = Instance.new("Frame")
+Panel.Name                   = "Panel"
+Panel.Size                   = UDim2.new(0, 290, 0, 626)
+Panel.Position               = UDim2.new(0, 6, 0, 6)
+Panel.BackgroundColor3       = T.PANEL
+Panel.BackgroundTransparency = 0
+Panel.BorderSizePixel        = 0
+Panel.Active                 = true
+Panel.Draggable              = false
+Panel.Visible                = false
+Panel.ZIndex                 = 2
+Panel.Parent                 = Glow
+Instance.new("UICorner", Panel).CornerRadius = UDim.new(0, 10)
+
+local PanelStroke = Instance.new("UIStroke")
+PanelStroke.Color           = T.BORDER
+PanelStroke.Thickness       = 1
+PanelStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+PanelStroke.Parent          = Panel
+
+-- ── Header ──────────────────────────────────────────────────
+local Header = Instance.new("Frame")
+Header.Size             = UDim2.new(1, 0, 0, 52)
+Header.BackgroundColor3 = T.BG
+Header.BorderSizePixel  = 0
+Header.ZIndex           = 3
+Header.Parent           = Panel
+Instance.new("UICorner", Header).CornerRadius = UDim.new(0, 10)
+
+local HFix = Instance.new("Frame")
+HFix.Size = UDim2.new(1,0,0.5,0); HFix.Position = UDim2.new(0,0,0.5,0)
+HFix.BackgroundColor3 = T.BG; HFix.BorderSizePixel = 0
+HFix.ZIndex = 3; HFix.Parent = Header
+
+local HLine = Instance.new("Frame")
+HLine.Size = UDim2.new(1,0,0,2); HLine.Position = UDim2.new(0,0,1,-2)
+HLine.BackgroundColor3 = T.ACCENT; HLine.BorderSizePixel = 0
+HLine.ZIndex = 5; HLine.Parent = Header
+
+local TitleLbl = Instance.new("TextLabel")
+TitleLbl.Size = UDim2.new(0,180,0,20); TitleLbl.Position = UDim2.new(0,14,0,7)
+TitleLbl.BackgroundTransparency = 1; TitleLbl.Text = L.title
+TitleLbl.TextColor3 = T.WHITE; TitleLbl.TextSize = 14
+TitleLbl.Font = Enum.Font.GothamBold
+TitleLbl.TextXAlignment = Enum.TextXAlignment.Left
+TitleLbl.ZIndex = 5; TitleLbl.Parent = Header
+registerLabel(TitleLbl, "title")
+
+local SubLbl = Instance.new("TextLabel")
+SubLbl.Size = UDim2.new(0,220,0,11); SubLbl.Position = UDim2.new(0,14,0,30)
+SubLbl.BackgroundTransparency = 1; SubLbl.Text = L.subtitle
+SubLbl.TextColor3 = T.DIM; SubLbl.TextSize = 8
+SubLbl.Font = Enum.Font.GothamMedium
+SubLbl.TextXAlignment = Enum.TextXAlignment.Left
+SubLbl.ZIndex = 5; SubLbl.Parent = Header
+registerLabel(SubLbl, "subtitle")
+
+local VIPBadge = Instance.new("Frame")
+VIPBadge.Size = UDim2.new(0,34,0,16); VIPBadge.Position = UDim2.new(1,-104,0.5,-8)
+VIPBadge.BackgroundColor3 = T.ACCENT; VIPBadge.BorderSizePixel = 0
+VIPBadge.ZIndex = 6; VIPBadge.Parent = Header
+Instance.new("UICorner", VIPBadge).CornerRadius = UDim.new(0,2)
+local VIPLbl = Instance.new("TextLabel")
+VIPLbl.Size = UDim2.new(1,0,1,0); VIPLbl.BackgroundTransparency = 1
+VIPLbl.Text = "VIP"; VIPLbl.TextColor3 = T.BG
+VIPLbl.TextSize = 8; VIPLbl.Font = Enum.Font.GothamBold
+VIPLbl.ZIndex = 7; VIPLbl.Parent = VIPBadge
+
+local LockBtn = Instance.new("TextButton")
+LockBtn.Size = UDim2.new(0,22,0,22); LockBtn.Position = UDim2.new(1,-60,0.5,-11)
+LockBtn.BackgroundColor3 = T.SUBTLE; LockBtn.BorderSizePixel = 0
+LockBtn.Text = "L"; LockBtn.TextColor3 = T.ACCENT
+LockBtn.TextSize = 9; LockBtn.Font = Enum.Font.GothamBold
+LockBtn.ZIndex = 6; LockBtn.Parent = Header
+Instance.new("UICorner", LockBtn).CornerRadius = UDim.new(0,3)
+local lkS = Instance.new("UIStroke")
+lkS.Color = T.ACCENT; lkS.Thickness = 1; lkS.Transparency = 0.4; lkS.Parent = LockBtn
+
+local CloseBtn = Instance.new("TextButton")
+CloseBtn.Size = UDim2.new(0,22,0,22); CloseBtn.Position = UDim2.new(1,-32,0.5,-11)
+CloseBtn.BackgroundColor3 = T.SUBTLE; CloseBtn.BorderSizePixel = 0
+CloseBtn.Text = "X"; CloseBtn.TextColor3 = T.ACCENT
+CloseBtn.TextSize = 9; CloseBtn.Font = Enum.Font.GothamBold
+CloseBtn.ZIndex = 6; CloseBtn.Parent = Header
+Instance.new("UICorner", CloseBtn).CornerRadius = UDim.new(0,3)
+local cS2 = Instance.new("UIStroke")
+cS2.Color = T.ACCENT; cS2.Thickness = 1; cS2.Transparency = 0.4; cS2.Parent = CloseBtn
+CloseBtn.MouseButton1Click:Connect(function()
+    Panel.Visible = false; Glow.Visible = false
+end)
+
+-- ── Scroll ───────────────────────────────────────────────────
+local Scroll = Instance.new("ScrollingFrame")
+Scroll.Size = UDim2.new(1,0,1,-80); Scroll.Position = UDim2.new(0,0,0,56)
+Scroll.BackgroundTransparency = 1; Scroll.BorderSizePixel = 0
+Scroll.ScrollBarThickness = 2; Scroll.ScrollBarImageColor3 = T.ACCENT
+Scroll.CanvasSize = UDim2.new(0,0,0,0)
+Scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+Scroll.ZIndex = 3; Scroll.Parent = Panel
+
+local LL = Instance.new("UIListLayout")
+LL.SortOrder = Enum.SortOrder.LayoutOrder; LL.Padding = UDim.new(0,3); LL.Parent = Scroll
+local LP = Instance.new("UIPadding")
+LP.PaddingLeft = UDim.new(0,8); LP.PaddingRight = UDim.new(0,8)
+LP.PaddingTop = UDim.new(0,8); LP.PaddingBottom = UDim.new(0,8)
+LP.Parent = Scroll
+
+-- ============================================================
+--  THEME ENGINE — recolor live
+-- ============================================================
+local ThemeRefs = { rows={}, sectionBars={}, sectionLbls={}, dividers={} }
+
+local function applyTheme(idx)
+    idx = math.clamp(idx, 1, #THEMES)
+    currentThemeIdx = idx; T = THEMES[idx]
+    Panel.BackgroundColor3 = T.PANEL
+    Glow.BackgroundColor3  = T.GLOW
+    PanelStroke.Color      = T.BORDER
+    Header.BackgroundColor3 = T.BG; HFix.BackgroundColor3 = T.BG
+    HLine.BackgroundColor3  = T.ACCENT
+    TitleLbl.TextColor3     = T.WHITE; SubLbl.TextColor3 = T.DIM
+    VIPBadge.BackgroundColor3 = T.ACCENT; VIPLbl.TextColor3 = T.BG
+    LockBtn.BackgroundColor3 = T.SUBTLE; LockBtn.TextColor3 = T.ACCENT; lkS.Color = T.ACCENT
+    CloseBtn.BackgroundColor3 = T.SUBTLE; CloseBtn.TextColor3 = T.ACCENT; cS2.Color = T.ACCENT
+    Scroll.ScrollBarImageColor3 = T.ACCENT
+    FOVCircle.Color = T.ACCENT
+    for _, r in ipairs(ThemeRefs.rows)        do r.BackgroundColor3 = T.ROW    end
+    for _, b in ipairs(ThemeRefs.sectionBars)  do b.BackgroundColor3 = T.ACCENT end
+    for _, l in ipairs(ThemeRefs.sectionLbls)  do l.TextColor3       = T.ACCENT end
+    for _, d in ipairs(ThemeRefs.dividers)     do d.BackgroundColor3 = T.BORDER end
+end
+
+-- ============================================================
+--  HELPERS
+-- ============================================================
+local function makeSection(textKey)
+    local row = Instance.new("Frame")
+    row.Size = UDim2.new(1,0,0,24); row.BackgroundTransparency = 1
+    row.ZIndex = 3; row.Parent = Scroll
+
+    local bar = Instance.new("Frame")
+    bar.Size = UDim2.new(0,2,0,14); bar.Position = UDim2.new(0,0,0.5,-7)
+    bar.BackgroundColor3 = T.ACCENT; bar.BorderSizePixel = 0
+    bar.ZIndex = 4; bar.Parent = row
+    Instance.new("UICorner", bar).CornerRadius = UDim.new(1,0)
+    table.insert(ThemeRefs.sectionBars, bar)
+
+    local lbl = Instance.new("TextLabel")
+    lbl.Size = UDim2.new(1,-10,1,0); lbl.Position = UDim2.new(0,10,0,0)
+    lbl.BackgroundTransparency = 1; lbl.Text = L[textKey] or textKey
+    lbl.TextColor3 = T.ACCENT; lbl.TextSize = 8
+    lbl.Font = Enum.Font.GothamBold
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.ZIndex = 4; lbl.Parent = row
+    table.insert(ThemeRefs.sectionLbls, lbl)
+    registerLabel(lbl, textKey)
+
+    local div = Instance.new("Frame")
+    div.Size = UDim2.new(1,0,0,1); div.Position = UDim2.new(0,0,1,-1)
+    div.BackgroundColor3 = T.BORDER; div.BorderSizePixel = 0
+    div.ZIndex = 4; div.Parent = row
+    table.insert(ThemeRefs.dividers, div)
+end
+
+local function makeToggle(labelKey, subKey, default, onChange)
+    local row = Instance.new("Frame")
+    row.Size = UDim2.new(1,0,0,42); row.BackgroundColor3 = T.ROW
+    row.BorderSizePixel = 0; row.ZIndex = 3; row.Parent = Scroll
+    Instance.new("UICorner", row).CornerRadius = UDim.new(0,6)
+    table.insert(ThemeRefs.rows, row)
+    local rStroke = Instance.new("UIStroke")
+    rStroke.Color = T.BORDER; rStroke.Thickness = 1
+    rStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border; rStroke.Parent = row
+
+    local strip = Instance.new("Frame")
+    strip.Size = UDim2.new(0,2,0.55,0); strip.Position = UDim2.new(0,0,0.225,0)
+    strip.BackgroundColor3 = default and T.ACCENT or T.SUBTLE
+    strip.BorderSizePixel = 0; strip.ZIndex = 4; strip.Parent = row
+    Instance.new("UICorner", strip).CornerRadius = UDim.new(1,0)
+
+    local mainLbl = Instance.new("TextLabel")
+    mainLbl.Size = UDim2.new(1,-68,0,18); mainLbl.Position = UDim2.new(0,12,0,6)
+    mainLbl.BackgroundTransparency = 1; mainLbl.Text = L[labelKey] or labelKey
+    mainLbl.TextColor3 = T.WHITE; mainLbl.TextSize = 10
+    mainLbl.Font = Enum.Font.GothamBold
+    mainLbl.TextXAlignment = Enum.TextXAlignment.Left
+    mainLbl.ZIndex = 4; mainLbl.Parent = row
+    registerLabel(mainLbl, labelKey)
+
+    if subKey then
+        local sub = Instance.new("TextLabel")
+        sub.Size = UDim2.new(1,-68,0,11); sub.Position = UDim2.new(0,12,0,26)
+        sub.BackgroundTransparency = 1; sub.Text = L[subKey] or subKey
+        sub.TextColor3 = T.DIM; sub.TextSize = 7
+        sub.Font = Enum.Font.Gotham
+        sub.TextXAlignment = Enum.TextXAlignment.Left
+        sub.ZIndex = 4; sub.Parent = row
+        registerLabel(sub, subKey)
+    end
+
+    local pill = Instance.new("Frame")
+    pill.Size = UDim2.new(0,42,0,22); pill.Position = UDim2.new(1,-52,0.5,-11)
+    pill.BackgroundColor3 = default and T.ACCENT or T.SUBTLE
+    pill.BorderSizePixel = 0; pill.ZIndex = 4; pill.Parent = row
+    Instance.new("UICorner", pill).CornerRadius = UDim.new(1,0)
+    local pS = Instance.new("UIStroke")
+    pS.Color = default and T.ACCENT or T.BORDER
+    pS.Thickness = 1; pS.Transparency = 0.3; pS.Parent = pill
+
+    local dot = Instance.new("Frame")
+    dot.Size = UDim2.new(0,16,0,16)
+    dot.Position = default and UDim2.new(1,-19,0.5,-8) or UDim2.new(0,3,0.5,-8)
+    dot.BackgroundColor3 = T.WHITE; dot.BorderSizePixel = 0
+    dot.ZIndex = 5; dot.Parent = pill
+    Instance.new("UICorner", dot).CornerRadius = UDim.new(1,0)
+
+    local state = default
+    local hitbox = Instance.new("TextButton")
+    hitbox.Size = UDim2.new(1,0,1,0); hitbox.BackgroundTransparency = 1
+    hitbox.Text = ""; hitbox.ZIndex = 6; hitbox.Parent = row
+
+    local function refresh(v)
+        state = v
+        local ac = T.ACCENT
+        pill.BackgroundColor3  = v and ac or T.SUBTLE
+        pS.Color               = v and ac or T.BORDER
+        dot.Position           = v and UDim2.new(1,-19,0.5,-8) or UDim2.new(0,3,0.5,-8)
+        strip.BackgroundColor3 = v and ac or T.SUBTLE
+    end
+
+    hitbox.MouseButton1Click:Connect(function() refresh(not state); onChange(state) end)
+    return row, function(v) refresh(v); onChange(v) end
+end
+
+local function makeSlider(labelKey, min, max, default, fmtFn, onChange)
+    local row = Instance.new("Frame")
+    row.Size = UDim2.new(1,0,0,54); row.BackgroundColor3 = T.ROW
+    row.BorderSizePixel = 0; row.ZIndex = 3; row.Parent = Scroll
+    Instance.new("UICorner", row).CornerRadius = UDim.new(0,6)
+    table.insert(ThemeRefs.rows, row)
+    local rS = Instance.new("UIStroke")
+    rS.Color = T.BORDER; rS.Thickness = 1
+    rS.ApplyStrokeMode = Enum.ApplyStrokeMode.Border; rS.Parent = row
+
+    local lbl = Instance.new("TextLabel")
+    lbl.Size = UDim2.new(0.6,0,0,18); lbl.Position = UDim2.new(0,12,0,7)
+    lbl.BackgroundTransparency = 1; lbl.Text = L[labelKey] or labelKey
+    lbl.TextColor3 = T.WHITE; lbl.TextSize = 10
+    lbl.Font = Enum.Font.GothamBold
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.ZIndex = 4; lbl.Parent = row
+    registerLabel(lbl, labelKey)
+
+    local valLbl = Instance.new("TextLabel")
+    valLbl.Size = UDim2.new(0.35,0,0,18); valLbl.Position = UDim2.new(0.65,0,0,7)
+    valLbl.BackgroundTransparency = 1; valLbl.Text = fmtFn(default)
+    valLbl.TextColor3 = T.ACCENT; valLbl.TextSize = 10
+    valLbl.Font = Enum.Font.GothamBold
+    valLbl.TextXAlignment = Enum.TextXAlignment.Right
+    valLbl.ZIndex = 4; valLbl.Parent = row
+
+    local track = Instance.new("Frame")
+    track.Size = UDim2.new(1,-24,0,3); track.Position = UDim2.new(0,12,0,38)
+    track.BackgroundColor3 = T.SUBTLE; track.BorderSizePixel = 0
+    track.ZIndex = 4; track.Parent = row
+    Instance.new("UICorner", track).CornerRadius = UDim.new(1,0)
+
+    local initT = (default - min) / (max - min)
+    local fill = Instance.new("Frame")
+    fill.Size = UDim2.new(initT,0,1,0); fill.BackgroundColor3 = T.ACCENT
+    fill.BorderSizePixel = 0; fill.ZIndex = 5; fill.Parent = track
+    Instance.new("UICorner", fill).CornerRadius = UDim.new(1,0)
+
+    local thumb = Instance.new("Frame")
+    thumb.Size = UDim2.new(0,12,0,12); thumb.Position = UDim2.new(initT,-6,0.5,-6)
+    thumb.BackgroundColor3 = T.WHITE; thumb.BorderSizePixel = 0
+    thumb.ZIndex = 6; thumb.Parent = track
+    Instance.new("UICorner", thumb).CornerRadius = UDim.new(1,0)
+    local tS = Instance.new("UIStroke")
+    tS.Color = T.ACCENT; tS.Thickness = 1.5; tS.Parent = thumb
+
+    local dragging = false
+    thumb.InputBegan:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 then dragging = true end
+    end)
+    UserInputService.InputEnded:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
+    end)
+    RunService.RenderStepped:Connect(function()
+        if not dragging then return end
+        local mouse = UserInputService:GetMouseLocation()
+        local abs = track.AbsolutePosition; local sz = track.AbsoluteSize
+        local t = math.clamp((mouse.X - abs.X) / sz.X, 0, 1)
+        fill.Size = UDim2.new(t,0,1,0); thumb.Position = UDim2.new(t,-6,0.5,-6)
+        valLbl.Text = fmtFn(min + t*(max-min)); onChange(min + t*(max-min))
+    end)
+end
+
+-- ============================================================
+--  §8  FIRE MODE SELECTOR
+-- ============================================================
+local FireModeBtn1, FireModeBtn2
+do
+    local row = Instance.new("Frame")
+    row.Size = UDim2.new(1,0,0,50); row.BackgroundColor3 = T.ROW
+    row.BorderSizePixel = 0; row.ZIndex = 3; row.Parent = Scroll
+    Instance.new("UICorner", row).CornerRadius = UDim.new(0,6)
+    table.insert(ThemeRefs.rows, row)
+    local rS = Instance.new("UIStroke")
+    rS.Color = T.BORDER; rS.Thickness = 1
+    rS.ApplyStrokeMode = Enum.ApplyStrokeMode.Border; rS.Parent = row
+
+    local tLbl = Instance.new("TextLabel")
+    tLbl.Size = UDim2.new(1,-12,0,14); tLbl.Position = UDim2.new(0,12,0,5)
+    tLbl.BackgroundTransparency = 1; tLbl.Text = L.fm_label
+    tLbl.TextColor3 = T.DIM; tLbl.TextSize = 8
+    tLbl.Font = Enum.Font.GothamBold
+    tLbl.TextXAlignment = Enum.TextXAlignment.Left
+    tLbl.ZIndex = 4; tLbl.Parent = row
+    registerLabel(tLbl, "fm_label")
+
+    local function modeBtn(labelKey, x, idx)
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(0,118,0,20); btn.Position = UDim2.new(0,x,0,22)
+        btn.BackgroundColor3 = Settings.FireMode==idx and T.ACCENT or T.SUBTLE
+        btn.BorderSizePixel = 0
+        btn.Text = L[labelKey] or labelKey
+        btn.TextColor3 = Settings.FireMode==idx and T.BG or T.DIM
+        btn.TextSize = 8; btn.Font = Enum.Font.GothamBold
+        btn.ZIndex = 5; btn.Parent = row
+        Instance.new("UICorner", btn).CornerRadius = UDim.new(0,4)
+        registerLabel(btn, labelKey)
+        return btn
+    end
+    FireModeBtn1 = modeBtn("fm_head", 12, 1)
+    FireModeBtn2 = modeBtn("fm_body", 136, 2)
+
+    local function ref()
+        FireModeBtn1.BackgroundColor3 = Settings.FireMode==1 and T.ACCENT or T.SUBTLE
+        FireModeBtn1.TextColor3       = Settings.FireMode==1 and T.BG or T.DIM
+        FireModeBtn2.BackgroundColor3 = Settings.FireMode==2 and T.ACCENT or T.SUBTLE
+        FireModeBtn2.TextColor3       = Settings.FireMode==2 and T.BG or T.DIM
+    end
+    FireModeBtn1.MouseButton1Click:Connect(function() Settings.FireMode=1; ref() end)
+    FireModeBtn2.MouseButton1Click:Connect(function() Settings.FireMode=2; ref() end)
+end
+
+-- ============================================================
+--  §9  THEME SWITCHER
+-- ============================================================
+local ThemeCurLbl
+do
+    local row = Instance.new("Frame")
+    row.Size = UDim2.new(1,0,0,50); row.BackgroundColor3 = T.ROW
+    row.BorderSizePixel = 0; row.ZIndex = 3; row.Parent = Scroll
+    Instance.new("UICorner", row).CornerRadius = UDim.new(0,6)
+    table.insert(ThemeRefs.rows, row)
+    local rS = Instance.new("UIStroke")
+    rS.Color = T.BORDER; rS.Thickness = 1
+    rS.ApplyStrokeMode = Enum.ApplyStrokeMode.Border; rS.Parent = row
+
+    local tLbl = Instance.new("TextLabel")
+    tLbl.Size = UDim2.new(0.5,0,0,14); tLbl.Position = UDim2.new(0,12,0,5)
+    tLbl.BackgroundTransparency = 1; tLbl.Text = L.theme_label
+    tLbl.TextColor3 = T.DIM; tLbl.TextSize = 8
+    tLbl.Font = Enum.Font.GothamBold
+    tLbl.TextXAlignment = Enum.TextXAlignment.Left
+    tLbl.ZIndex = 4; tLbl.Parent = row
+    registerLabel(tLbl, "theme_label")
+
+    ThemeCurLbl = Instance.new("TextLabel")
+    ThemeCurLbl.Size = UDim2.new(0.5,0,0,14); ThemeCurLbl.Position = UDim2.new(0.5,0,0,5)
+    ThemeCurLbl.BackgroundTransparency = 1
+    ThemeCurLbl.Text = THEMES[currentThemeIdx].name
+    ThemeCurLbl.TextColor3 = T.ACCENT; ThemeCurLbl.TextSize = 8
+    ThemeCurLbl.Font = Enum.Font.GothamBold
+    ThemeCurLbl.TextXAlignment = Enum.TextXAlignment.Right
+    ThemeCurLbl.ZIndex = 4; ThemeCurLbl.Parent = row
+
+    local swatchColors = {
+        Color3.fromRGB(200,30,30), Color3.fromRGB(180,190,200),
+        Color3.fromRGB(80,220,60), Color3.fromRGB(220,225,240),
+        Color3.fromRGB(230,100,20),
+    }
+    local swatchBtns = {}
+    for i = 1, 5 do
+        local sw = Instance.new("TextButton")
+        sw.Size = UDim2.new(0,34,0,18); sw.Position = UDim2.new(0,12+(i-1)*40,0,26)
+        sw.BackgroundColor3 = swatchColors[i]; sw.BorderSizePixel = 0
+        sw.Text = ""; sw.ZIndex = 5; sw.Parent = row
+        Instance.new("UICorner", sw).CornerRadius = UDim.new(0,3)
+        local ss = Instance.new("UIStroke")
+        ss.Color = Color3.fromRGB(255,255,255)
+        ss.Thickness = i==currentThemeIdx and 2 or 0.5
+        ss.Transparency = i==currentThemeIdx and 0 or 0.7
+        ss.Parent = sw
+        swatchBtns[i] = { btn=sw, stroke=ss }
+        sw.MouseButton1Click:Connect(function()
+            for j, s in ipairs(swatchBtns) do
+                s.stroke.Thickness = j==i and 2 or 0.5
+                s.stroke.Transparency = j==i and 0 or 0.7
+            end
+            applyTheme(i)
+            ThemeCurLbl.Text = THEMES[i].name
+            ThemeCurLbl.TextColor3 = T.ACCENT
+        end)
+    end
+end
+
+-- ============================================================
+--  §10  LANGUAGE ROW
+-- ============================================================
+do
+    local row = Instance.new("Frame")
+    row.Size = UDim2.new(1,0,0,42); row.BackgroundColor3 = T.ROW
+    row.BorderSizePixel = 0; row.ZIndex = 3; row.Parent = Scroll
+    Instance.new("UICorner", row).CornerRadius = UDim.new(0,6)
+    table.insert(ThemeRefs.rows, row)
+    local rS = Instance.new("UIStroke")
+    rS.Color = T.BORDER; rS.Thickness = 1
+    rS.ApplyStrokeMode = Enum.ApplyStrokeMode.Border; rS.Parent = row
+
+    local nameLbl = Instance.new("TextLabel")
+    nameLbl.Size = UDim2.new(0.5,0,0,18); nameLbl.Position = UDim2.new(0,12,0.5,-9)
+    nameLbl.BackgroundTransparency = 1; nameLbl.Text = L.lang_label
+    nameLbl.TextColor3 = T.WHITE; nameLbl.TextSize = 10
+    nameLbl.Font = Enum.Font.GothamBold
+    nameLbl.TextXAlignment = Enum.TextXAlignment.Left
+    nameLbl.ZIndex = 4; nameLbl.Parent = row
+    registerLabel(nameLbl, "lang_label")
+
+    -- EN button
+    local enBtn = Instance.new("TextButton")
+    enBtn.Size = UDim2.new(0,52,0,22); enBtn.Position = UDim2.new(1,-118,0.5,-11)
+    enBtn.BackgroundColor3 = currentLang=="EN" and T.ACCENT or T.SUBTLE
+    enBtn.BorderSizePixel = 0; enBtn.Text = "EN"
+    enBtn.TextColor3 = currentLang=="EN" and T.BG or T.DIM
+    enBtn.TextSize = 9; enBtn.Font = Enum.Font.GothamBold
+    enBtn.ZIndex = 5; enBtn.Parent = row
+    Instance.new("UICorner", enBtn).CornerRadius = UDim.new(0,4)
+
+    -- TH button
+    local thBtn = Instance.new("TextButton")
+    thBtn.Size = UDim2.new(0,52,0,22); thBtn.Position = UDim2.new(1,-60,0.5,-11)
+    thBtn.BackgroundColor3 = currentLang=="TH" and T.ACCENT or T.SUBTLE
+    thBtn.BorderSizePixel = 0; thBtn.Text = "TH"
+    thBtn.TextColor3 = currentLang=="TH" and T.BG or T.DIM
+    thBtn.TextSize = 9; thBtn.Font = Enum.Font.GothamBold
+    thBtn.ZIndex = 5; thBtn.Parent = row
+    Instance.new("UICorner", thBtn).CornerRadius = UDim.new(0,4)
+
+    local function refreshLangBtns()
+        enBtn.BackgroundColor3 = currentLang=="EN" and T.ACCENT or T.SUBTLE
+        enBtn.TextColor3       = currentLang=="EN" and T.BG or T.DIM
+        thBtn.BackgroundColor3 = currentLang=="TH" and T.ACCENT or T.SUBTLE
+        thBtn.TextColor3       = currentLang=="TH" and T.BG or T.DIM
+    end
+
+    enBtn.MouseButton1Click:Connect(function()
+        applyLanguage("EN"); refreshLangBtns()
+    end)
+    thBtn.MouseButton1Click:Connect(function()
+        applyLanguage("TH"); refreshLangBtns()
+    end)
+end
+
+-- ============================================================
+--  §11  KEYBIND HELPER
+-- ============================================================
+local function makeKeybindRow(labelKey, subKey, defaultKey)
+    local row = Instance.new("Frame")
+    row.Size = UDim2.new(1,0,0,42); row.BackgroundColor3 = T.ROW
+    row.BorderSizePixel = 0; row.ZIndex = 3; row.Parent = Scroll
+    Instance.new("UICorner", row).CornerRadius = UDim.new(0,6)
+    table.insert(ThemeRefs.rows, row)
+    local rS = Instance.new("UIStroke")
+    rS.Color = T.BORDER; rS.Thickness = 1
+    rS.ApplyStrokeMode = Enum.ApplyStrokeMode.Border; rS.Parent = row
+
+    local nameLbl = Instance.new("TextLabel")
+    nameLbl.Size = UDim2.new(0.55,0,0,18); nameLbl.Position = UDim2.new(0,12,0,6)
+    nameLbl.BackgroundTransparency = 1; nameLbl.Text = L[labelKey] or labelKey
+    nameLbl.TextColor3 = T.WHITE; nameLbl.TextSize = 10
+    nameLbl.Font = Enum.Font.GothamBold
+    nameLbl.TextXAlignment = Enum.TextXAlignment.Left
+    nameLbl.ZIndex = 4; nameLbl.Parent = row
+    registerLabel(nameLbl, labelKey)
+
+    local subLbl = Instance.new("TextLabel")
+    subLbl.Size = UDim2.new(0.55,0,0,11); subLbl.Position = UDim2.new(0,12,0,26)
+    subLbl.BackgroundTransparency = 1; subLbl.Text = L[subKey] or subKey
+    subLbl.TextColor3 = T.DIM; subLbl.TextSize = 7
+    subLbl.Font = Enum.Font.Gotham
+    subLbl.TextXAlignment = Enum.TextXAlignment.Left
+    subLbl.ZIndex = 4; subLbl.Parent = row
+    registerLabel(subLbl, subKey)
+
+    local keyBtn = Instance.new("TextButton")
+    keyBtn.Size = UDim2.new(0,54,0,22); keyBtn.Position = UDim2.new(1,-62,0.5,-11)
+    keyBtn.BackgroundColor3 = T.SUBTLE; keyBtn.BorderSizePixel = 0
+    keyBtn.Text = defaultKey.Name; keyBtn.TextColor3 = T.ACCENT
+    keyBtn.TextSize = 9; keyBtn.Font = Enum.Font.GothamBold
+    keyBtn.ZIndex = 5; keyBtn.Parent = row
+    Instance.new("UICorner", keyBtn).CornerRadius = UDim.new(0,4)
+    local kS = Instance.new("UIStroke")
+    kS.Color = T.ACCENT; kS.Thickness = 1; kS.Transparency = 0.3; kS.Parent = keyBtn
+
+    return row, keyBtn, kS
+end
+
+local function enterBind(btn, kS)
+    btn.Text = "..."; btn.TextColor3 = T.DIM; kS.Color = T.DIM
+end
+local function exitBind(btn, kS, kc)
+    btn.Text = kc.Name; btn.TextColor3 = T.ACCENT; kS.Color = T.ACCENT
+end
+
+-- ============================================================
+--  §12  BUILD SECTIONS
+-- ============================================================
+makeSection("s_aimbot")
+
+local _, _syncAFToggle   = makeToggle("autofire",  "autofire_sub",  false, function(v) Settings.AutoFire     = v end)
+local _, _syncAimToggle  = makeToggle("silentaim", "silentaim_sub", false, function(v) Settings.AimEnabled   = v end)
+local _, _syncMagToggle  = makeToggle("magnet",    "magnet_sub",    false, function(v) Settings.BulletMagnet = v end)
+local _, _syncMultiToggle= makeToggle("multi",     "multi_sub",     false, function(v) Settings.MultiTarget  = v end)
+local _, _syncWallToggle = makeToggle("wallcheck", "wallcheck_sub", true,  function(v) Settings.WallCheck    = v end)
+syncAFToggle     = _syncAFToggle
+syncAimToggle    = _syncAimToggle
+syncMagnetToggle = _syncMagToggle
+syncMultiToggle  = _syncMultiToggle
+syncWallToggle   = _syncWallToggle
+
+makeSection("s_fire")
+-- fire mode row already built in §8
+
+makeSlider("fov_radius",  50,  800, Settings.FOVRadius,    function(v) return tostring(math.floor(v)) end, function(v) Settings.FOVRadius    = math.floor(v) end)
+makeSlider("fire_delay", 0.01, 1, Settings.AutoFireRate, function(v) return string.format("%.2f",v) end, function(v) Settings.AutoFireRate = v end)
+makeSlider("mag_radius",   2,   40, Settings.MagnetRadius, function(v) return string.format("%.0f st",v) end, function(v) Settings.MagnetRadius = v end)
+
+makeSection("s_esp")
+
+local _, _syncESPToggle  = makeToggle("showesp",   "showesp_sub", false, function(v) Settings.ShowESP   = v end)
+local _, syncNamesToggle = makeToggle("shownames", nil,           false, function(v) Settings.ShowNames  = v end)
+local _, syncDistToggle  = makeToggle("showdist",  nil,           false, function(v) Settings.ShowDist   = v end)
+syncESPToggle = _syncESPToggle
+
+makeSlider("esp_dist", 100, 1000, Settings.ESPMaxDist,
+    function(v) return tostring(math.floor(v)) end,
+    function(v) Settings.ESPMaxDist = math.floor(v) end)
+
+makeSection("s_misc")
+
+local _, _syncFOVToggle = makeToggle("showfov", nil, false, function(v)
+    Settings.ShowFOV = v; FOVCircle.Visible = v
+end)
+syncFOVToggle = _syncFOVToggle
+
+makeSection("s_theme")
+-- theme switcher already built in §9
+
+makeSection("s_lang")
+-- language row already built in §10
+
+makeSection("s_keybind")
+local _, KeyToggleBtn, KeyToggleStroke = makeKeybindRow("kb_panel", "kb_sub",       KeyBindings.Toggle)
+local _, KeyAFBtn,     KeyAFStroke     = makeKeybindRow("kb_af",    "kb_sub",       KeyBindings.AutoFire)
+local _, KeySABtn,     KeySAStroke     = makeKeybindRow("kb_sa",    "kb_sub",       KeyBindings.SilentAim)
+local _, KeyResetBtn,  KeyResetStroke  = makeKeybindRow("kb_reset", "kb_reset_sub", KeyBindings.Reset)
+
+KeyToggleBtn.MouseButton1Click:Connect(function()
+    if BindingToggle or BindingAutoFire or BindingSilentAim or BindingReset then return end
+    BindingToggle = true; enterBind(KeyToggleBtn, KeyToggleStroke)
+end)
+KeyAFBtn.MouseButton1Click:Connect(function()
+    if BindingToggle or BindingAutoFire or BindingSilentAim or BindingReset then return end
+    BindingAutoFire = true; enterBind(KeyAFBtn, KeyAFStroke)
+end)
+KeySABtn.MouseButton1Click:Connect(function()
+    if BindingToggle or BindingAutoFire or BindingSilentAim or BindingReset then return end
+    BindingSilentAim = true; enterBind(KeySABtn, KeySAStroke)
+end)
+KeyResetBtn.MouseButton1Click:Connect(function()
+    if BindingToggle or BindingAutoFire or BindingSilentAim or BindingReset then return end
+    BindingReset = true; enterBind(KeyResetBtn, KeyResetStroke)
+end)
+
+-- ============================================================
+--  §13  RESET — ปิดทุกอย่างพร้อมกัน incl. FOV circle
+-- ============================================================
+local function resetAllFeatures()
+    Settings.AimEnabled   = false
+    Settings.AutoFire     = false
+    Settings.BulletMagnet = false
+    Settings.MultiTarget  = false
+    Settings.ShowFOV      = false
+    Settings.ShowESP      = false
+    FOVCircle.Visible     = false
+
+    if syncAimToggle     then syncAimToggle(false)    end
+    if syncAFToggle      then syncAFToggle(false)     end
+    if syncMagnetToggle  then syncMagnetToggle(false) end
+    if syncMultiToggle   then syncMultiToggle(false)  end
+    if syncFOVToggle     then syncFOVToggle(false)    end
+    if syncESPToggle     then syncESPToggle(false)    end
+
+    if StatusLbl then
+        StatusLbl.TextColor3 = T.ACCENT
+        StatusLbl.Text = L.st_reset_msg
+        task.delay(1.5, function()
+            if StatusLbl then StatusLbl.TextColor3 = T.DIM end
+        end)
+    end
+end
+
+-- ============================================================
+--  §14  INPUT HANDLER
+-- ============================================================
+UserInputService.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+    local kc = input.KeyCode
+
+    if BindingToggle then
+        BindingToggle = false; KeyBindings.Toggle = kc
+        exitBind(KeyToggleBtn, KeyToggleStroke, kc); return
+    end
+    if BindingAutoFire then
+        BindingAutoFire = false; KeyBindings.AutoFire = kc
+        exitBind(KeyAFBtn, KeyAFStroke, kc); return
+    end
+    if BindingSilentAim then
+        BindingSilentAim = false; KeyBindings.SilentAim = kc
+        exitBind(KeySABtn, KeySAStroke, kc); return
+    end
+    if BindingReset then
+        BindingReset = false; KeyBindings.Reset = kc
+        exitBind(KeyResetBtn, KeyResetStroke, kc); return
+    end
+
+    if kc == KeyBindings.Toggle then
+        local vis = not Panel.Visible
+        Panel.Visible = vis; Glow.Visible = vis
+    elseif kc == KeyBindings.AutoFire then
+        Settings.AutoFire = not Settings.AutoFire
+        if syncAFToggle then syncAFToggle(Settings.AutoFire) end
+    elseif kc == KeyBindings.SilentAim then
+        Settings.AimEnabled = not Settings.AimEnabled
+        if syncAimToggle then syncAimToggle(Settings.AimEnabled) end
+    elseif kc == KeyBindings.Reset then
+        resetAllFeatures()
+    end
+end)
+
+-- ============================================================
+--  §15  DRAG LOCK
+-- ============================================================
+local function updateLockBtn()
+    if DragLocked then
+        LockBtn.Text = "L"; LockBtn.TextColor3 = T.ACCENT; lkS.Color = T.ACCENT
+    else
+        LockBtn.Text = "U"; LockBtn.TextColor3 = T.DIM; lkS.Color = T.DIM
+    end
+end
+updateLockBtn()
+LockBtn.MouseButton1Click:Connect(function() DragLocked = not DragLocked; updateLockBtn() end)
+
+do
+    local dragging = false; local dMouse, dPos = Vector2.new(), UDim2.new()
+    Header.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            if DragLocked then return end
+            dragging = true
+            dMouse = Vector2.new(input.Position.X, input.Position.Y)
+            dPos   = Glow.Position
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
+    end)
+    UserInputService.InputChanged:Connect(function(i)
+        if dragging and not DragLocked
+            and i.UserInputType == Enum.UserInputType.MouseMovement then
+            local d = Vector2.new(i.Position.X, i.Position.Y) - dMouse
+            Glow.Position = UDim2.new(dPos.X.Scale, dPos.X.Offset+d.X,
+                                      dPos.Y.Scale, dPos.Y.Offset+d.Y)
+        end
+    end)
+end
+
+-- ============================================================
+--  §16  ESP — full outline rect + theme color system
+--  ally  color = T.ACCENT  (ทีมเรา ถ้าเกมมี team)
+--  enemy color = complementary(T.ACCENT)  (ฝั่งตรงข้าม)
+--  ทุก enemy = ถือว่าเป็น enemy เสมอใน free-for-all
+-- ============================================================
+local espPool = {}
+
+local function newLine2(color, thick)
+    local l = Drawing.new("Line")
+    l.Color = color; l.Thickness = thick or 1.5
+    l.Visible = false; l.ZIndex = 5; return l
+end
+local function newText2(size, color)
+    local t = Drawing.new("Text")
+    t.Size = size; t.Color = color
+    t.Center = true; t.Outline = true
+    t.OutlineColor = Color3.fromRGB(0,0,0)
+    t.Visible = false; t.ZIndex = 5; return t
+end
+
+local function destroyESP(player)
+    local obj = espPool[player]; if not obj then return end
+    for _, l in pairs(obj.lines or {}) do pcall(function() l:Remove() end) end
+    for _, t in pairs(obj.texts or {}) do pcall(function() t:Remove() end) end
+    if obj.conn then obj.conn:Disconnect() end
+    espPool[player] = nil
+end
+
+local function createESP(player)
+    if player == LocalPlayer then return end
+    if espPool[player] then destroyESP(player) end
+
+    -- 4 lines = full rectangle outline (not corner brackets)
+    local lines = {}
+    for i = 1, 4 do lines[i] = newLine2(complementary(T.ACCENT), 1.5) end
+    local texts = {
+        name = newText2(12, complementary(T.ACCENT)),
+        dist = newText2(10, T.DIM),
+    }
+
+    local function hideAll()
+        for _, l in pairs(lines) do l.Visible = false end
+        for _, t in pairs(texts) do t.Visible = false end
+    end
+
+    -- full rect: top, right, bottom, left
+    local function drawRect(x, y, w, h)
+        -- sync color to current theme complementary every frame
+        local ec = complementary(T.ACCENT)
+        for _, l in pairs(lines) do l.Color = ec end
+        texts.name.Color = ec
+
+        -- top
+        lines[1].From = Vector2.new(x,   y);   lines[1].To = Vector2.new(x+w, y)
+        -- right
+        lines[2].From = Vector2.new(x+w, y);   lines[2].To = Vector2.new(x+w, y+h)
+        -- bottom
+        lines[3].From = Vector2.new(x+w, y+h); lines[3].To = Vector2.new(x,   y+h)
+        -- left
+        lines[4].From = Vector2.new(x,   y+h); lines[4].To = Vector2.new(x,   y)
+
+        for _, l in pairs(lines) do l.Visible = true end
+    end
+
+    local conn
+    conn = RunService.RenderStepped:Connect(function()
+        if not player or not player:IsDescendantOf(Players) then destroyESP(player); return end
+        if not Settings.ShowESP then hideAll(); return end
+        local char = player.Character; local lc = LocalPlayer.Character
+        if not char or not char:IsDescendantOf(workspace) or not lc then hideAll(); return end
+        local root = char:FindFirstChild("HumanoidRootPart")
+        local hum  = char:FindFirstChildOfClass("Humanoid")
+        local head = char:FindFirstChild("Head")
+        if not root or not hum or hum.Health <= 0 or not head then hideAll(); return end
+        local lr   = lc:FindFirstChild("HumanoidRootPart")
+        local dist = lr and (root.Position - lr.Position).Magnitude or 9999
+        if dist > Settings.ESPMaxDist then hideAll(); return end
+
+        local top    = root.Position + Vector3.new(0, 3.2, 0)
+        local bottom = root.Position - Vector3.new(0, 3.2, 0)
+        local topSP, topOn   = Camera:WorldToViewportPoint(top)
+        local bottomSP, _    = Camera:WorldToViewportPoint(bottom)
+        if not topOn then hideAll(); return end
+
+        local minY = math.min(topSP.Y, bottomSP.Y)
+        local maxY = math.max(topSP.Y, bottomSP.Y)
+        local h = maxY - minY; local w = h * 0.5
+        local cx = (topSP.X + bottomSP.X) * 0.5
+
+        -- full rect outline centered on player
+        drawRect(cx - w/2, minY, w, h)
+
+        if Settings.ShowNames then
+            texts.name.Text     = player.DisplayName or player.Name
+            texts.name.Position = Vector2.new(cx, minY - 14)
+            texts.name.Visible  = true
+        else texts.name.Visible = false end
+
+        if Settings.ShowDist then
+            texts.dist.Text     = string.format("[%.0f]", dist)
+            texts.dist.Position = Vector2.new(cx, maxY + 2)
+            texts.dist.Color    = T.DIM
+            texts.dist.Visible  = true
+        else texts.dist.Visible = false end
+    end)
+
+    espPool[player] = { lines = lines, texts = texts, conn = conn }
+end
+
+for _, p in ipairs(Players:GetPlayers()) do if p ~= LocalPlayer then createESP(p) end end
+Players.PlayerAdded:Connect(function(p) if p ~= LocalPlayer then createESP(p) end end)
+Players.PlayerRemoving:Connect(destroyESP)
+workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
+    Camera = workspace.CurrentCamera
+end)
+
+-- ============================================================
+--  §17  FOV UPDATE
+-- ============================================================
+RunService.RenderStepped:Connect(function()
+    FOVCircle.Position = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
+    FOVCircle.Radius   = Settings.FOVRadius
+end)
+
+-- ============================================================
+--  §18  BONE SYSTEM
+-- ============================================================
+local BoneWeights = {
+    { name="Head",             weight=50 },
+    { name="UpperTorso",       weight=30 },
+    { name="Torso",            weight=30 },
+    { name="LowerTorso",       weight=20 },
+    { name="HumanoidRootPart", weight=10 },
+}
+
+local function RaycastVisible(char, partName)
+    local lc = LocalPlayer.Character
+    if not lc or not char then return false end
+    local part = char:FindFirstChild(partName); if not part then return false end
+    local camPos = Camera.CFrame.Position
+    local rp = RaycastParams.new()
+    rp.FilterType = Enum.RaycastFilterType.Exclude
+    rp.FilterDescendantsInstances = { lc, char }
+    rp.IgnoreWater = true
+    local res = workspace:Raycast(camPos, part.Position - camPos, rp)
+    return res == nil
+end
+
+local function GetHeadTarget(char)
+    if not Settings.WallCheck then return char:FindFirstChild("Head") end
+    if RaycastVisible(char, "Head") then return char:FindFirstChild("Head") end
+    return nil
+end
+
+local function GetVisibleBonesWeighted(char)
+    local lc = LocalPlayer.Character
+    if not lc or not char then return {} end
+    local camPos = Camera.CFrame.Position
+    local rp = RaycastParams.new()
+    rp.FilterType = Enum.RaycastFilterType.Exclude
+    rp.FilterDescendantsInstances = { lc, char }
+    rp.IgnoreWater = true
+    local visible = {}
+    for _, entry in ipairs(BoneWeights) do
+        local part = char:FindFirstChild(entry.name)
+        if part then
+            if not Settings.WallCheck then
+                table.insert(visible, { part=part, weight=entry.weight })
+            else
+                local res = workspace:Raycast(camPos, part.Position - camPos, rp)
+                if res == nil then table.insert(visible, { part=part, weight=entry.weight }) end
+            end
+        end
+    end
+    return visible
+end
+
+local function WeightedRandomBone(visibleBones)
+    if #visibleBones == 0 then return nil end
+    local total = 0
+    for _, b in ipairs(visibleBones) do total = total + b.weight end
+    local roll = math.random() * total; local cum = 0
+    for _, b in ipairs(visibleBones) do
+        cum = cum + b.weight
+        if roll <= cum then return b.part end
+    end
+    return visibleBones[#visibleBones].part
+end
+
+-- ============================================================
+--  §19  TARGET SYSTEM
+-- ============================================================
+local function GetScreenCenter()
+    return Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
+end
+
+local function GetBestTarget()
+    local best, bestD = nil, math.huge
+    local center = GetScreenCenter()
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player == LocalPlayer then continue end
+        local char = player.Character; if not char then continue end
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if not hum or hum.Health <= 0 then continue end
+        local head = char:FindFirstChild("Head"); if not head then continue end
+        local sp, on = Camera:WorldToViewportPoint(head.Position)
+        if not on then continue end
+        local d = (Vector2.new(sp.X, sp.Y) - center).Magnitude
+        if d > Settings.FOVRadius or d >= bestD then continue end
+        local tp = Settings.FireMode==1
+            and GetHeadTarget(char)
+            or WeightedRandomBone(GetVisibleBonesWeighted(char))
+        if not tp then continue end
+        best  = { Player=player, Char=char, TargetPart=tp }
+        bestD = d
+    end
+    return best
+end
+
+local function GetAllTargetsInFOV()
+    local targets = {}; local center = GetScreenCenter()
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player == LocalPlayer then continue end
+        local char = player.Character; if not char then continue end
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if not hum or hum.Health <= 0 then continue end
+        local head = char:FindFirstChild("Head"); if not head then continue end
+        local sp, on = Camera:WorldToViewportPoint(head.Position)
+        if not on then continue end
+        local d = (Vector2.new(sp.X, sp.Y) - center).Magnitude
+        if d > Settings.FOVRadius then continue end
+        local tp = Settings.FireMode==1
+            and GetHeadTarget(char)
+            or WeightedRandomBone(GetVisibleBonesWeighted(char))
+        if not tp then continue end
+        table.insert(targets, { Player=player, Char=char, TargetPart=tp })
+    end
+    return targets
+end
+
+-- ============================================================
+--  §20  BULLET MAGNET
+-- ============================================================
+local function GetMagnetTarget()
+    local lc = LocalPlayer.Character; if not lc then return nil end
+    local camCF  = Camera.CFrame
+    local origin = camCF.Position
+    local dir    = camCF.LookVector * 2000
+    local bestBone, bestDist = nil, Settings.MagnetRadius
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player == LocalPlayer then continue end
+        local char = player.Character; if not char then continue end
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if not hum or hum.Health <= 0 then continue end
+        for _, entry in ipairs(BoneWeights) do
+            local part = char:FindFirstChild(entry.name)
+            if not part then continue end
+            local bonePos = part.Position
+            local t = math.clamp((bonePos - origin):Dot(dir) / dir:Dot(dir), 0, 1)
+            local closest = origin + dir * t
+            local distToRay = (bonePos - closest).Magnitude
+            if distToRay < bestDist then bestDist = distToRay; bestBone = bonePos end
+        end
+    end
+    return bestBone
+end
+
+-- ============================================================
+--  §21  SILENT AIM HOOK
+-- ============================================================
+local SilentTarget = nil
+local oldShoot     = nil
+
+local function trySilentAimHook()
+    local ok, CSC = pcall(function()
+        local RS = game:GetService("ReplicatedStorage")
+        return require(RS.Client.CombatController.ClientComponent.ClientShootableComponent)
+    end)
+    if not ok or not CSC then return false end
+    local ov; ov = hookfunction(CSC.LocalShoot, function(self, ...)
+        if Settings.AimEnabled or Settings.BulletMagnet then
+            if Settings.BulletMagnet then
+                local magnetPos = GetMagnetTarget()
+                if magnetPos then
+                    SilentTarget = { Position = magnetPos }
+                elseif Settings.AimEnabled then
+                    local enemy = GetBestTarget()
+                    if enemy then SilentTarget = { Position = enemy.TargetPart.Position } end
+                end
+            elseif Settings.AimEnabled then
+                local enemy = GetBestTarget()
+                if enemy then SilentTarget = { Position = enemy.TargetPart.Position } end
+            end
+        end
+        local r = ov(self, ...); SilentTarget = nil; return r
+    end)
+    for i = 1, 25 do
+        local uok, val = pcall(debug.getupvalue, ov, i)
+        if uok and type(val) == "function" then
+            pcall(function()
+                local vv; vv = hookfunction(val, function(...)
+                    if SilentTarget and (Settings.AimEnabled or Settings.BulletMagnet) then
+                        local r1 = vv(...)
+                        if typeof(r1) == "CFrame" then
+                            return CFrame.lookAt(r1.Position, SilentTarget.Position)
+                        end
+                        if typeof(r1) == "Vector3" then return SilentTarget.Position end
+                        return r1
+                    end
+                    return vv(...)
+                end)
+            end)
+        end
+    end
+    oldShoot = ov; return true
+end
+
+if not trySilentAimHook() then
+    task.spawn(function()
+        for _ = 1, 12 do task.wait(2); if trySilentAimHook() then break end end
+    end)
+end
+
+-- ============================================================
+--  §22  AUTO-FIRE
+-- ============================================================
+local lastFireTime = 0
+local isFiring     = false
+
+local function doMouseClick()
+    if mouse1press and mouse1release then
+        mouse1press(); task.wait(0.03); mouse1release(); return true
+    end
+    if VirtualInput then
+        local vp = Camera.ViewportSize
+        pcall(function() VirtualInput:SendMouseButtonEvent(vp.X/2,vp.Y/2,0,true,game,1) end)
+        task.wait(0.03)
+        pcall(function() VirtualInput:SendMouseButtonEvent(vp.X/2,vp.Y/2,0,false,game,1) end)
+        return true
+    end
+    return false
+end
+
+RunService.Heartbeat:Connect(function()
+    if not Settings.AutoFire then return end
+    local now = tick()
+    if now - lastFireTime < Settings.AutoFireRate then return end
+    if isFiring then return end
+    if Settings.MultiTarget then
+        local targets = GetAllTargetsInFOV()
+        if #targets == 0 then return end
+        isFiring = true
+        task.spawn(function()
+            for _, t in ipairs(targets) do
+                if Settings.AimEnabled or Settings.BulletMagnet then
+                    SilentTarget = { Position = t.TargetPart.Position }
+                end
+                doMouseClick(); SilentTarget = nil
+                task.wait(Settings.AutoFireRate * 0.5)
+            end
+            isFiring = false
+        end)
+    else
+        local enemy = GetBestTarget(); if not enemy then return end
+        if Settings.AimEnabled then
+            SilentTarget = { Position = enemy.TargetPart.Position }
+        end
+        isFiring = true
+        task.spawn(function()
+            doMouseClick(); SilentTarget = nil; isFiring = false
+        end)
+    end
+    lastFireTime = now
+end)
+
+-- ============================================================
+--  §23  STATUS BAR
+-- ============================================================
+local StatusBar = Instance.new("Frame")
+StatusBar.Size = UDim2.new(1,0,0,22); StatusBar.Position = UDim2.new(0,0,1,-24)
+StatusBar.BackgroundColor3 = T.BG; StatusBar.BorderSizePixel = 0
+StatusBar.ZIndex = 3; StatusBar.Parent = Panel
+Instance.new("UICorner", StatusBar).CornerRadius = UDim.new(0,6)
+local sbS = Instance.new("UIStroke")
+sbS.Color = T.BORDER; sbS.Thickness = 1; sbS.Parent = StatusBar
+
+StatusLbl = Instance.new("TextLabel")
+StatusLbl.Size = UDim2.new(1,-10,1,0); StatusLbl.Position = UDim2.new(0,8,0,0)
+StatusLbl.BackgroundTransparency = 1; StatusLbl.Text = "INITIALIZING..."
+StatusLbl.TextColor3 = T.DIM; StatusLbl.TextSize = 7
+StatusLbl.Font = Enum.Font.GothamMedium
+StatusLbl.TextXAlignment = Enum.TextXAlignment.Left
+StatusLbl.ZIndex = 4; StatusLbl.Parent = StatusBar
+
+task.spawn(function()
+    while task.wait(2) do
+        local aim  = Settings.AimEnabled   and "AIM"   or "-"
+        local af   = Settings.AutoFire     and "AF"    or "-"
+        local mag  = Settings.BulletMagnet and "MAG"   or "-"
+        local mul  = Settings.MultiTarget  and "MULTI" or "-"
+        local hook = oldShoot              and (L.st_hook or "HOOK") or (L.st_wait or "WAIT")
+        local mode = Settings.FireMode==1  and "HEAD"  or "BODY"
+        local lang = currentLang
+        StatusLbl.Text = string.format(
+            "[%s][%s][%s][%s]  %s  %s  LANG:%s  RST:%s",
+            aim, af, mag, mul, hook, mode, lang, KeyBindings.Reset.Name)
+        StatusLbl.TextColor3 = (Settings.AutoFire or Settings.AimEnabled) and T.ACCENT or T.DIM
+    end
+end)
+
+-- ============================================================
+--  EOF — Purser Hub v1.0 — press P to open
+-- ============================================================
